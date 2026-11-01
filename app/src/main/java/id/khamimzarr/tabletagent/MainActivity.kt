@@ -22,6 +22,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etServer: TextInputEditText
     private lateinit var etToken: TextInputEditText
     private lateinit var tvStatus: TextView
+    private lateinit var tvLog: TextView
     private val ui = Handler(Looper.getMainLooper())
 
     private val required = arrayOf(
@@ -35,6 +36,11 @@ class MainActivity : AppCompatActivity() {
         override fun run() {
             val s = AgentService.status
             tvStatus.text = if (AgentService.running) "● $s" else "○ $s"
+            val log = java.io.File(filesDir, "agent.log")
+            if (log.exists() && log.length() > 0) {
+                tvLog.text = log.readLines().takeLast(4).joinToString("\n") { it.substringAfter(" ") }
+                tvLog.visibility = android.view.View.VISIBLE
+            }
             ui.postDelayed(this, 1000)
         }
     }
@@ -47,6 +53,7 @@ class MainActivity : AppCompatActivity() {
         etServer = findViewById(R.id.etServer)
         etToken = findViewById(R.id.etToken)
         tvStatus = findViewById(R.id.tvStatus)
+        tvLog = findViewById(R.id.tvLog)
 
         etServer.setText(prefs.server)
         etToken.setText(prefs.token)
@@ -89,8 +96,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun launchService() {
         val i = Intent(this, AgentService::class.java).setAction(AgentService.ACTION_START)
-        ContextCompat.startForegroundService(this, i)
-        toast("agen dinyalakan")
+        try {
+            ContextCompat.startForegroundService(this, i)
+            toast("agen dinyalakan")
+        } catch (e: Exception) {
+            tvStatus.text = "gagal menyalakan service: ${e.message}"
+        }
     }
 
     private fun stopAgent() {

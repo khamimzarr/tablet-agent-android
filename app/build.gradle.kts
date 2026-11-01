@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -11,8 +13,20 @@ android {
         applicationId = "id.khamimzarr.tabletagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 3
+        versionName = "1.2"
+
+        val local = Properties().apply {
+            file("../local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+        }
+        val defServer = local.getProperty("agent.server", "ws://43.159.35.225:2198")
+        val defToken = local.getProperty("agent.token", "")
+        buildConfigField("String", "DEFAULT_SERVER", "\"$defServer\"")
+        buildConfigField("String", "DEFAULT_TOKEN", "\"$defToken\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {

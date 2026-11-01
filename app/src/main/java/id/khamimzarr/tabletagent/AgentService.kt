@@ -22,6 +22,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString.Companion.toByteString
 import org.json.JSONObject
+import java.io.File
 import java.net.URLEncoder
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -33,7 +34,7 @@ class AgentService : LifecycleService() {
         const val ACTION_STOP = "id.khamimzarr.tabletagent.STOP"
         private const val CHANNEL_ID = "agent"
         private const val NOTIF_ID = 42
-        const val VERSION = "1.0"
+        const val VERSION = BuildConfig.VERSION_NAME
 
         @Volatile var running = false
         @Volatile var status = "berhenti"
@@ -82,6 +83,14 @@ class AgentService : LifecycleService() {
         startForegroundCompat(buildNotification("menghubungkan…"))
         connect()
         return START_STICKY
+    }
+
+    /** status + pesan galat terakhir, supaya layar app bisa menampilkan sebabnya. */
+    private fun fail(where: String, t: Throwable) {
+        val msg = t.message ?: t.javaClass.simpleName
+        Log.e(TAG, "$where: $msg", t)
+        update("$where: $msg")
+        try { File(filesDir, "agent.log").appendText("${System.currentTimeMillis()} $where: $msg\n") } catch (_: Exception) {}
     }
 
     override fun onDestroy() {
@@ -238,10 +247,18 @@ class AgentService : LifecycleService() {
             if (granted(Manifest.permission.CAMERA)) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
             if (granted(Manifest.permission.RECORD_AUDIO)) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             if (granted(Manifest.permission.ACCESS_FINE_LOCATION)) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            startForeground(NOTIF_ID, n, types)
-        } else {
-            startForeground(NOTIF_ID, n)
+            try {
+                startForeground(NOTIF_ID, n, types)
+                return
+            } catch (e: Exception) {
+                // tipe gabungan bisa ditolak kalau salah satu izinnya belum aktif;
+                // turun ke SPECIAL_USE saja sebelum menyerah.
+                fail("foreground gabungan ditolak", e)
+                startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                return
+            }
         }
+        startForeground(NOTIF_ID, n)
     }
 
     private fun granted(perm: String) =
