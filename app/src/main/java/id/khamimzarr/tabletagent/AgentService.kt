@@ -209,8 +209,8 @@ class AgentService : LifecycleService() {
         val nm = getSystemService(NotificationManager::class.java)
         if (nm.getNotificationChannel(CHANNEL_ID) == null) {
             nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Agen Tablet", NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Koneksi agen kendali tablet"
+                NotificationChannel(CHANNEL_ID, "ShareMe", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "Koneksi agen kendali perangkat"
                     setShowBadge(false)
                 }
             )
@@ -223,7 +223,7 @@ class AgentService : LifecycleService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Tablet Agent")
+            .setContentTitle("ShareMe")
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_stat_agent)
             .setOngoing(true)
