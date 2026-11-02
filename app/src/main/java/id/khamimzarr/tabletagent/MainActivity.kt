@@ -23,6 +23,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etToken: TextInputEditText
     private lateinit var tvStatus: TextView
     private lateinit var tvLog: TextView
+    private lateinit var btnAdmin: MaterialButton
+    private lateinit var btnUsage: MaterialButton
     private val ui = Handler(Looper.getMainLooper())
 
     private val required = arrayOf(
@@ -36,6 +38,8 @@ class MainActivity : AppCompatActivity() {
         override fun run() {
             val s = AgentService.status
             tvStatus.text = if (AgentService.running) "● $s" else "○ $s"
+            btnAdmin.text = if (DeviceAdmin.isActive(this@MainActivity)) "✓ Kunci layar aktif" else "Aktifkan kunci layar"
+            btnUsage.text = if (DeviceAdmin.hasUsageAccess(this@MainActivity)) "✓ App aktif terlihat" else "Izinkan lihat app aktif"
             val log = java.io.File(filesDir, "agent.log")
             if (log.exists() && log.length() > 0) {
                 tvLog.text = log.readLines().takeLast(4).joinToString("\n") { it.substringAfter(" ") }
@@ -54,6 +58,8 @@ class MainActivity : AppCompatActivity() {
         etToken = findViewById(R.id.etToken)
         tvStatus = findViewById(R.id.tvStatus)
         tvLog = findViewById(R.id.tvLog)
+        btnAdmin = findViewById(R.id.btnAdmin)
+        btnUsage = findViewById(R.id.btnUsage)
 
         etServer.setText(prefs.server)
         etToken.setText(prefs.token)
@@ -61,6 +67,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btnStart).setOnClickListener { startAgent() }
         findViewById<MaterialButton>(R.id.btnStop).setOnClickListener { stopAgent() }
         findViewById<MaterialButton>(R.id.btnBattery).setOnClickListener { askBatteryExemption() }
+        btnAdmin.setOnClickListener { askDeviceAdmin() }
+        btnUsage.setOnClickListener { askUsageAccess() }
 
         ui.post(ticker)
     }
@@ -133,6 +141,31 @@ class MainActivity : AppCompatActivity() {
             )
         } catch (e: Exception) {
             startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }
+    }
+
+    private fun askDeviceAdmin() {
+        if (DeviceAdmin.isActive(this)) {
+            toast("kunci layar sudah aktif")
+            return
+        }
+        try {
+            startActivity(DeviceAdmin.requestIntent(this))
+        } catch (e: Exception) {
+            toast("gagal membuka layar izin: ${e.message}")
+        }
+    }
+
+    private fun askUsageAccess() {
+        if (DeviceAdmin.hasUsageAccess(this)) {
+            toast("izin app aktif sudah ada")
+            return
+        }
+        try {
+            startActivity(DeviceAdmin.usageAccessIntent())
+            toast("cari ShareMe di daftar, lalu aktifkan")
+        } catch (e: Exception) {
+            toast("gagal membuka pengaturan: ${e.message}")
         }
     }
 

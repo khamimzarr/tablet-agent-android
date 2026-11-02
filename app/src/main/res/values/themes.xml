@@ -11,4 +11,14 @@
         <item name="colorOnSurface">@color/text</item>
         <item name="colorOutline">@color/stroke</item>
     </style>
+
+    <!-- latar transparan untuk UnlockActivity: tidak boleh ada kilatan layar saat keyguard ditutup -->
+    <style name="Theme.Transparent" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

@@ -96,6 +96,7 @@ class AgentService : LifecycleService() {
     override fun onDestroy() {
         manualStop = true
         running = false
+        try { actions.cancelPendingLock() } catch (_: Exception) {}
         try { ws?.close(1000, "service stop") } catch (_: Exception) {}
         worker.shutdownNow()
         super.onDestroy()
@@ -193,6 +194,18 @@ class AgentService : LifecycleService() {
             }
 
             "play_alarm" -> reply(socket, msgId, actions.alarm(p.optString("text", "Alarm")))
+
+            // ---- kendali perangkat (panel chat) ----
+            "device_panel" -> reply(socket, msgId, actions.panel(true, VERSION))
+
+            "lock_device" -> reply(socket, msgId, actions.lock())
+
+            "unlock_device" -> reply(socket, msgId, actions.unlock())
+
+            "unlock_for" -> {
+                val m = p.optInt("minutes", 15)
+                reply(socket, msgId, actions.unlockFor(m))
+            }
 
             "test_cmd" -> reply(socket, msgId, actions.shell(p.optString("command")))
 

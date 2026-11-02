@@ -2,6 +2,8 @@ package id.khamimzarr.tabletagent
 
 import android.Manifest
 import android.app.ActivityManager
+import android.app.KeyguardManager
+import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -12,6 +14,8 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.media.MediaRecorder
 import android.media.RingtoneManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Build
@@ -20,6 +24,9 @@ import android.os.Handler
 import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.camera.core.CameraSelector
@@ -39,6 +46,158 @@ import java.util.concurrent.TimeUnit
  * info sistem dari /proc + BatteryManager + WifiManager.
  */
 class Actions(private val ctx: Context, private val owner: LifecycleOwner) {
+
+    private val ui = Handler(Looper.getMainLooper())
+    private var pendingLock: Runnable? = null
+
+    // ---------- kendali: status, kunci, buka ----------
+
+    fun keyguardLocked(): Boolean = try {
+        val km = ctx.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        km.isKeyguardLocked
+    } catch (e: Exception) {
+        false
+    }
+
+    /** Layar dikunci PIN/pola/sandi? Kalau ya, app biasa tidak boleh membukanya. */
+    fun keyguardSecure(): Boolean = try {
+        val km = ctx.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        km.isDeviceSecure
+    } catch (e: Exception) {
+        false
+    }
+
+    fun lock(): String {
+        if (!DeviceAdmin.isActive(ctx)) return "izin kunci layar belum aktif — buka app ShareMe lalu ketuk \"Aktifkan kunci layar\""
+        return try {
+            val dpm = ctx.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            dpm.lockNow()
+            "layar dikunci"
+        } catch (e: Exception) {
+            "gagal kunci layar: ${e.message}"
+        }
+    }
+
+    /** Minta UnlockActivity menutup keyguard. Hasil sebenarnya muncul di agent.log / status berikutnya. */
+    fun unlock(): String {
+        return try {
+            val i = Intent(ctx, UnlockActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            ctx.startActivity(i)
+            if (keyguardSecure()) {
+                "permintaan buka dikirim — tablet pakai PIN/pola, jadi harus dibuka manual di layar"
+            } else {
+                "permintaan buka dikirim ke layar"
+            }
+        } catch (e: Exception) {
+            "gagal buka layar: ${e.message}"
+        }
+    }
+
+    /** Buka sekarang, lalu kunci otomatis setelah [minutes] menit. */
+    fun unlockFor(minutes: Int): String {
+        val m = minutes.coerceIn(1, 240)
+        cancelPendingLock()
+        val msg = unlock()
+        val r = Runnable { lock() }
+        pendingLock = r
+        ui.postDelayed(r, m * 60_000L)
+        return "$msg\n⏳ akan dikunci lagi otomatis dalam $m menit"
+    }
+
+    fun cancelPendingLock() {
+        pendingLock?.let { ui.removeCallbacks(it) }
+        pendingLock = null
+    }
+
+    private fun batteryParts(): String {
+        return try {
+            val i = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                ?: return "gagal baca"
+            val level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+            val pct = if (scale > 0) level * 100 / scale else level
+            val charging = i.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
+            "$pct%" + if (charging) " (mengisi)" else ""
+        } catch (e: Exception) {
+            "gagal baca"
+        }
+    }
+
+    private fun internetText(): String {
+        return try {
+            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val net = cm.activeNetwork ?: return "tidak ada"
+            val cap = cm.getNetworkCapabilities(net) ?: return "tidak ada"
+            val transport = when {
+                cap.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
+                    try {
+                        val wm = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                        val ssid = wm.connectionInfo?.ssid?.trim('"')
+                        if (!ssid.isNullOrBlank()) "Wi-Fi $ssid" else "Wi-Fi"
+                    } catch (e: Exception) {
+                        "Wi-Fi"
+                    }
+                }
+                cap.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "seluler"
+                cap.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+                else -> "tersambung"
+            }
+            if (cap.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) transport else "$transport (tanpa internet)"
+        } catch (e: Exception) {
+            "tidak diketahui"
+        }
+    }
+
+    /** Judul aplikasi yang sedang di depan, lewat UsageStats — butuh izin Usage Access. */
+    private fun foregroundApp(): String {
+        if (!DeviceAdmin.hasUsageAccess(ctx)) return "butuh izin Usage Access"
+        return try {
+            val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+            val now = System.currentTimeMillis()
+            val events = usm.queryEvents(now - 60_000L, now)
+            val e = UsageEvents.Event()
+            var lastPkg: String? = null
+            var lastTime = 0L
+            while (events.hasNextEvent()) {
+                events.getNextEvent(e)
+                if (e.eventType == UsageEvents.Event.ACTIVITY_RESUMED && e.timeStamp >= lastTime) {
+                    lastPkg = e.packageName
+                    lastTime = e.timeStamp
+                }
+            }
+            val pkg = lastPkg ?: usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 3_600_000L, now)
+                ?.maxByOrNull { it.lastTimeUsed }?.packageName
+                ?: return "tidak diketahui"
+            val pm = ctx.packageManager
+            val label = try {
+                pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+            } catch (e2: Exception) {
+                pkg
+            }
+            "$label"
+        } catch (e: Exception) {
+            "tidak terbaca"
+        }
+    }
+
+    /** Panel kendali untuk chat: satu pesan HTML, isinya status nyata dari perangkat. */
+    fun panel(online: Boolean, agentVersion: String): String {
+        val locked = keyguardLocked()
+        val admin = if (DeviceAdmin.isActive(ctx)) "aktif" else "belum aktif"
+        val secure = if (keyguardSecure()) " (pakai PIN)" else " (tanpa PIN)"
+        val sb = StringBuilder()
+        sb.append("🎛️ <b>KENDALI PERANGKAT</b>\n")
+        sb.append("────────────────\n")
+        sb.append("📡 <b>Koneksi</b>   ").append(if (online) "🟢 Online" else "🔴 Offline").append(" · agen v").append(agentVersion).append("\n")
+        sb.append("🔋 <b>Baterai</b>   ").append(batteryParts()).append("\n")
+        sb.append("🔒 <b>Layar</b>     ").append(if (locked) "🔒 terkunci" else "🔓 terbuka").append(secure).append("\n")
+        sb.append("📶 <b>Internet</b>  ").append(internetText()).append("\n")
+        sb.append("📱 <b>Terbuka</b>   ").append(foregroundApp()).append("\n")
+        sb.append("🛡️ <b>Kunci jarak jauh</b>  ").append(admin).append("\n")
+        sb.append("\nPilih tindakan:")
+        return sb.toString()
+    }
 
     // ---------- system info ----------
 

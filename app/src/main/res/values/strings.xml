@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ShareMe</string>
+    <string name="admin_label">Kunci layar jarak jauh</string>
+    <string name="admin_desc">Mengizinkan ShareMe mengunci layar tablet dari chat. Tidak ada izin hapus data atau ubah sandi.</string>
 </resources>
