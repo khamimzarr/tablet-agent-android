@@ -110,12 +110,15 @@ class AgentService : LifecycleService() {
             update("token/server kosong")
             return
         }
+        // tutup socket lama dulu: tanpa ini reconnect cepat meninggalkan dua koneksi hidup,
+        // dan server menerima dua balasan untuk satu perintah (pesan chat jadi bentrok).
+        try { ws?.close(1000, "reconnect") } catch (_: Exception) {}
         val url = server.trimEnd('/') + "/?token=" + URLEncoder.encode(token, "UTF-8")
         update("menghubungkan…")
         val req = Request.Builder().url(url).build()
-
-        ws = http.newWebSocket(req, object : WebSocketListener() {
+        val socket = http.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (ws !== webSocket) return
                 attempts = 0
                 update("online")
                 Log.i(TAG, "terhubung")
@@ -126,6 +129,8 @@ class AgentService : LifecycleService() {
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                // frame dari socket basi diabaikan; hanya koneksi aktif yang boleh menjawab
+                if (ws !== webSocket) return
                 val plain = Crypto.decrypt(token, text)
                 if (!plain.contains("\"action\"")) return
                 worker.execute {
@@ -138,13 +143,16 @@ class AgentService : LifecycleService() {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (ws !== webSocket) return
                 scheduleReconnect("gagal: " + (t.message ?: t.javaClass.simpleName))
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (ws !== webSocket) return
                 scheduleReconnect("terputus ($code)")
             }
         })
+        ws = socket
     }
 
     private fun scheduleReconnect(reason: String) {

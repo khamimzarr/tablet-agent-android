@@ -13,8 +13,8 @@ android {
         applicationId = "id.khamimzarr.tabletagent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.3"
+        versionCode = 5
+        versionName = "1.4"
 
         val local = Properties().apply {
             file("../local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
